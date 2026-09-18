@@ -16,8 +16,9 @@ function getSessionId() {
 
 const SESSION_ID = getSessionId()
 
-// frontend/src/App.jsx
-const API_URL = 'http://188.212.124.117:3000'
+// Same origin by default: nginx (and the Vite dev proxy) route /api to the backend.
+// Set VITE_API_URL only when the API lives on another host.
+const API_URL = import.meta.env.VITE_API_URL || ''
 
 // --- FRONTEND-ONLY FALLBACK DATA ---
 const EPITAPHS = {
@@ -96,15 +97,13 @@ async function apiFetch(path, options = {}) {
         'X-Session-Id': SESSION_ID,
         ...options.headers,
     }
+    let res
     try {
-        const res = await fetch(`${API_URL}${path}`, { ...options, headers })
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}))
-            throw new Error(err.error || 'Что-то пошло не так в склепе...')
-        }
-        return res.json()
+        res = await fetch(`${API_URL}${path}`, { ...options, headers })
     } catch (e) {
-        console.warn(`Backend unreachable at ${API_URL}, using frontend fallback for ${path}`)
+        // Only a network failure means the backend is unreachable. An HTTP error below
+        // (400, 429, 500) is a real answer and must reach the user, not a fake grave.
+        console.warn(`Backend unreachable at ${API_URL || location.origin}, using frontend fallback for ${path}`)
         // Handle specific endpoints for frontend-only mode
         if (path === '/api/graves' && options.method !== 'DELETE') {
             return getLocalGraves()
@@ -124,6 +123,11 @@ async function apiFetch(path, options = {}) {
         }
         throw e // Rethrow if we can't mock it
     }
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Что-то пошло не так в склепе...')
+    }
+    return res.json()
 }
 
 // ====================================================
@@ -1106,6 +1110,9 @@ export default function App() {
         } catch (err) {
             setError(err.message || 'Что-то пошло ужасно не так в склепе.')
             setView('confess')
+        } finally {
+            // Without this the confessional stayed disabled after the first burial.
+            setLoading(false)
         }
     }
 

@@ -62,6 +62,7 @@ http://localhost:5173
 | Animations | Framer Motion     |
 | Backend  | Node.js + Express   |
 | Storage  | JSON file           |
+| AI       | Gemini (Vertex AI)  |
 
 ## API
 
@@ -74,33 +75,44 @@ http://localhost:5173
 
 ### Admin Endpoints
 
-```bash
-# Все могилы (нужен ключ)
-curl http://localhost:3000/api/admin/graves?key=funeral-admin-2026
+Выключены, пока не задан `ADMIN_KEY` / Disabled until `ADMIN_KEY` is set:
 
-# Лог файл
-curl http://localhost:3000/api/admin/logs?key=funeral-admin-2026
+```bash
+curl http://localhost:3000/api/admin/graves -H "X-Admin-Key: $ADMIN_KEY"
+curl http://localhost:3000/api/admin/logs   -H "X-Admin-Key: $ADMIN_KEY"
 ```
 
-Ключ по умолчанию: `funeral-admin-2026`
-Можно сменить через переменную `ADMIN_KEY`:
-```bash
-ADMIN_KEY=my-secret-key npm run dev
-```
+## AI (Gemini)
+
+Надгробия пишет Gemini. Без настроек работают шаблоны. /
+Gemini writes the gravestones; with nothing configured the static templates are used.
+
+| Variable | Purpose |
+|----------|---------|
+| `VERTEX_AI_PROJECT` | Google Cloud project → Gemini on **Vertex AI** |
+| `VERTEX_AI_LOCATION` | default `us-central1` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | path to a service-account JSON with the *Vertex AI User* role (not needed if `gcloud auth application-default login` was run) |
+| `GEMINI_API_KEY` | alternative to Vertex: an AI Studio key |
+| `GEMINI_MODEL` | default `gemini-2.5-flash` |
+
+Limits (every burial is a paid AI call): `BURY_PER_IP_PER_MINUTE` (6), `BURY_PER_IP_PER_DAY` (60),
+`AI_CALLS_PER_DAY` (2000 — after that, templates until midnight UTC). Mistakes are capped at 500 characters.
 
 ## На сервере / Production
 
 ```bash
-# Backend
+# Backend — listens on 127.0.0.1 only; put nginx in front
 cd backend
-PORT=3000 node server.js
+npm ci
+PORT=3000 ADMIN_KEY=<long-random> VERTEX_AI_PROJECT=<project> node server.js
 
-# Frontend — собрать и раздать
+# Frontend — build and let nginx serve dist/, proxying /api to the backend
 cd frontend
-npm run build
-# dist/ папка готова для nginx/serve
-npx serve dist -l 5173
+npm ci && npm run build
 ```
+
+The frontend calls `/api` on its own origin. Set `VITE_API_URL` at build time only if the
+API lives on a different host.
 
 ## Лицензия / License
 

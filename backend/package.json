@@ -7,10 +7,12 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^2.23.0",
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",
-    "express": "^4.21.0",
-    "groq-sdk": "^0.37.0"
+    "express": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
