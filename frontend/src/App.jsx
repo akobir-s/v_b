@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
     I18nContext, useI18n, translator, initialLang, LANGS, langMeta, guessAnswerLang, OFFLINE_TEMPLATES,
@@ -967,12 +967,14 @@ function DiggingScene() {
                 <div className="scene-candle scene-candle-right">🕯️</div>
             </div>
 
+            {/* No exit animation here: this line is re-keyed every 1.8 s, and a keyed child
+                with an exit that unmounts while the whole scene is exiting leaves the page's
+                AnimatePresence (mode="wait") waiting forever — the grave never appeared. */}
             <motion.p
                 key={msgIndex}
                 className="loading-text"
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
                 transition={{ duration: 0.4 }}
             >
                 {messages[msgIndex]}
@@ -1377,7 +1379,7 @@ export default function App() {
         try { return localStorage.getItem('funeral-muted') === '1' } catch { return false }
     })
 
-    const t = translator(lang)
+    const t = useMemo(() => translator(lang), [lang])
     currentLang = lang
 
     useEffect(() => {
@@ -1392,6 +1394,8 @@ export default function App() {
         setLangState(code)
         setError(null)
     }, [])
+
+    const i18n = useMemo(() => ({ lang, t, setLang }), [lang, t, setLang])
 
     const toggleMute = () => {
         setIsMuted((m) => {
@@ -1445,7 +1449,7 @@ export default function App() {
     }
 
     return (
-        <I18nContext.Provider value={{ lang, t, setLang }}>
+        <I18nContext.Provider value={i18n}>
             <div className="app-container">
                 <AmbientHorror isMuted={isMuted} />
                 <ScreenOverlays />
