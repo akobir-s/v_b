@@ -36,9 +36,10 @@
   --ink: #2a221a;
 
   /* Typography */
-  --font-gothic: 'UnifrakturMaguntia', cursive;
-  --font-serif: 'Crimson Text', Georgia, serif;
-  --font-sans: 'Inter', -apple-system, sans-serif;
+  --font-display: 'UnifrakturMaguntia', 'EB Garamond', serif;
+  --font-gothic: var(--font-display);
+  --font-serif: 'EB Garamond', Georgia, serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
 
   /* Spacing */
   --space-xs: 0.25rem;
@@ -1504,4 +1505,545 @@ body {
   .app-container {
     max-width: 440px;
   }
+}
+
+/* ==============================================================
+   🌍 v2 — four languages, voice, share, and a phone-first pass
+   ============================================================== */
+
+/* --- Type per language ---------------------------------------
+   The blackletter title only has Latin letters; Cyrillic (incl. the
+   Tajik ғ ӣ қ ӯ ҳ ҷ) gets Oranienbaum, Persian gets Aref Ruqaa + Amiri.
+   Set on any element carrying lang=…, so a Persian grave inside the
+   Russian site still renders in a Persian face. */
+[lang="en"] { --font-display: 'UnifrakturMaguntia', 'EB Garamond', serif; }
+[lang="ru"],
+[lang="tg"] { --font-display: 'Oranienbaum', 'EB Garamond', serif; }
+[lang="fa"] {
+  --font-display: 'Aref Ruqaa', 'Amiri', serif;
+  --font-serif: 'Amiri', 'Vazirmatn', serif;
+  --font-sans: 'Vazirmatn', system-ui, sans-serif;
+}
+
+/* Arabic script is cursive: letter-spacing tears the joins apart, and it has no italic. */
+:lang(fa) {
+  letter-spacing: 0 !important;
+  font-style: normal !important;
+  text-transform: none !important;
+}
+
+body { font-family: var(--font-sans); }
+
+.main-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* --- Top bar ------------------------------------------------- */
+.topbar {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+  position: relative;
+  z-index: 150;
+}
+
+.sound-toggle {
+  position: static;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  font-size: 1.1rem;
+  background: rgba(18, 18, 31, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sound-toggle.is-muted { opacity: 0.7; }
+
+.lang-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(18, 18, 31, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.lang-option {
+  border: 0;
+  background: transparent;
+  color: var(--ash);
+  font: 500 0.8rem/1 'Inter', system-ui, sans-serif;
+  padding: 0 12px;
+  min-height: 34px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.lang-option:lang(fa) { font-family: 'Vazirmatn', system-ui, sans-serif; font-size: 0.86rem; }
+.lang-option:hover { color: var(--spirit); }
+
+.lang-option.is-active {
+  color: #f3e6c4;
+  background: linear-gradient(180deg, #2d2536 0%, #1b1622 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 170, 0, 0.38), 0 0 14px rgba(255, 170, 0, 0.1);
+}
+
+.lang-option:focus-visible,
+.sound-toggle:focus-visible,
+.action-btn:focus-visible,
+.mic-btn:focus-visible,
+.mini-grave-content:focus-visible,
+.gravestone:focus-visible {
+  outline: 2px solid var(--candle);
+  outline-offset: 2px;
+}
+
+/* --- Header -------------------------------------------------- */
+.header { padding: var(--space-xl) var(--space-md) var(--space-lg); }
+.header h1 { font-family: var(--font-display); }
+.header h1:lang(ru),
+.header h1:lang(tg) { letter-spacing: 1px; font-size: clamp(2rem, 8.5vw, 3.4rem); line-height: 1.15; }
+.header h1:lang(fa) { font-size: clamp(2rem, 9vw, 3.3rem); line-height: 1.5; }
+.header p { color: #a3a3c2; }
+.header p:lang(fa) { font-size: 1.2rem; line-height: 1.9; }
+
+/* --- Confessional ------------------------------------------- */
+.textarea-wrap { position: relative; }
+
+.confessional-textarea {
+  min-height: 150px;
+  padding-bottom: 58px;
+  font-size: 1.1rem;
+  resize: none;
+  box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+
+.confessional-textarea::placeholder { color: rgba(136, 136, 170, 0.6); font-style: italic; }
+.confessional-textarea:lang(fa)::placeholder { font-style: normal; }
+.confessional-textarea:disabled { opacity: 0.85; }
+.textarea-wrap.is-recording .confessional-textarea { border-color: rgba(255, 85, 115, 0.55); }
+
+.mic-btn {
+  position: absolute;
+  bottom: 10px;
+  inset-inline-end: 10px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--bone);
+  background: linear-gradient(180deg, #262634, #181822);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.15s, border-color 0.2s, color 0.2s;
+}
+
+.mic-btn:hover:not(:disabled) { border-color: rgba(255, 170, 0, 0.5); color: #ffd48a; }
+.mic-btn:active:not(:disabled) { transform: scale(0.94); }
+.mic-btn:disabled { opacity: 0.5; cursor: default; }
+
+.mic-btn--recording {
+  color: #ff6b88;
+  border-color: rgba(255, 85, 115, 0.7);
+  background: radial-gradient(circle, rgba(204, 34, 68, 0.35), rgba(60, 12, 24, 0.9));
+  animation: micPulse 1.4s ease-out infinite;
+}
+
+@keyframes micPulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 85, 115, 0.45); }
+  100% { box-shadow: 0 0 0 16px rgba(255, 85, 115, 0); }
+}
+
+.mic-stop-square { width: 14px; height: 14px; border-radius: 3px; background: currentColor; }
+
+.mic-overlay {
+  position: absolute;
+  bottom: 22px;
+  inset-inline-start: 16px;
+  inset-inline-end: 70px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 0.85rem/1.3 var(--font-sans);
+  color: var(--bone);
+  pointer-events: none;
+}
+
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff4d6d;
+  box-shadow: 0 0 10px #ff4d6d;
+  animation: recBlink 1s steps(2) infinite;
+  flex-shrink: 0;
+}
+
+@keyframes recBlink { 50% { opacity: 0.25; } }
+
+.rec-time { font-variant-numeric: tabular-nums; color: #ff8aa0; }
+
+.mic-spinner {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--candle);
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.textarea-footer { align-items: center; gap: 12px; }
+.lang-hint { font-family: var(--font-sans); opacity: 0.85; }
+.lang-hint b { color: #ffc766; font-weight: 600; }
+
+.mic-error {
+  margin-top: 10px;
+  font: 0.85rem/1.5 var(--font-sans);
+  color: #ff8aa0;
+}
+
+/* The stone button: readable in every language (blackletter capitals were not). */
+.bury-btn {
+  font-family: var(--font-display);
+  text-transform: none;
+  letter-spacing: 2px;
+  color: #efe4c8;
+  font-size: clamp(1.45rem, 5.6vw, 2.1rem);
+}
+
+.bury-btn:lang(fa) { font-size: clamp(1.5rem, 6vw, 2rem); padding-bottom: 30px; }
+
+/* --- Gravestone --------------------------------------------- */
+.gravestone {
+  overflow: hidden;
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
+    linear-gradient(180deg, #33334a 0%, #22222f 45%, #16161f 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -40px 70px rgba(0, 0, 0, 0.4),
+    0 18px 40px rgba(0, 0, 0, 0.7);
+}
+
+/* Stone grain */
+.gravestone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+.gravestone > * { position: relative; }
+
+/* Engraved letters: light catches the lower lip, shadow fills the cut. */
+.grave-rip,
+.grave-epitaph,
+.grave-mistake {
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.06), 0 -1px 1px rgba(0, 0, 0, 0.75);
+}
+
+.grave-rip {
+  font-family: var(--font-display);
+  font-size: clamp(1.9rem, 7vw, 2.4rem);
+  line-height: 1.2;
+}
+
+.grave-mistake { font-size: 1.15rem; line-height: 1.45; color: #ffb93a; }
+.grave-epitaph { font-size: 1.12rem; }
+.grave-epitaph:lang(fa),
+.grave-mistake:lang(fa) { font-size: 1.25rem; line-height: 1.9; }
+
+/* Each language's own quotation marks: “…” in English, «…» in Russian, Tajik and Persian. */
+.grave-epitaph { quotes: '“' '”'; }
+.grave-epitaph:lang(ru),
+.grave-epitaph:lang(tg),
+.grave-epitaph:lang(fa) { quotes: '«' '»'; }
+.grave-epitaph::before { content: open-quote; margin: 0 4px 0 0; }
+.grave-epitaph::after { content: close-quote; margin: 0 0 0 4px; }
+.grave-epitaph::before,
+.grave-epitaph::after { font-size: 1.5rem; vertical-align: -0.2em; color: var(--purple-mist); opacity: 0.6; line-height: 0; }
+
+.grave-cause {
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.95rem;
+  color: #c97a98;
+}
+
+.grave-cause-label {
+  font: 600 0.68rem/1 var(--font-sans);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ash);
+  opacity: 0.85;
+}
+
+.tombstone-click-hint {
+  position: static;
+  margin-top: var(--space-md);
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  opacity: 0;
+}
+
+@media (hover: none) {
+  .tombstone-click-hint { opacity: 0.6; }
+}
+
+/* --- Actions ------------------------------------------------ */
+.grave-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  max-width: 440px;
+}
+
+.grave-actions > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.cemetery-grid > .mini-grave:only-child { grid-column: 1 / -1; width: min(100%, 220px); justify-self: center; }
+
+.action-btn {
+  font: 600 0.95rem/1.2 var(--font-sans);
+  letter-spacing: 0.2px;
+  text-transform: none;
+  min-height: 50px;
+  padding: 12px 14px;
+  gap: 9px;
+  border-radius: 14px;
+  color: var(--bone);
+  background: linear-gradient(180deg, #2a2a39 0%, #1a1a24 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 3px 0 #0b0b10, 0 10px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.action-btn:hover { background: linear-gradient(180deg, #323244 0%, #20202c 100%); }
+.action-btn .btn-text { flex: 0 1 auto; }
+.btn-icon { font-size: 1.05rem; line-height: 1; }
+
+.action-btn--primary {
+  color: #ffd896;
+  border-color: rgba(255, 170, 0, 0.42);
+  background: linear-gradient(180deg, #342a1c 0%, #1f1911 100%);
+  box-shadow: 0 3px 0 #0e0b06, 0 10px 26px rgba(0, 0, 0, 0.4), 0 0 22px rgba(255, 170, 0, 0.07), inset 0 1px 0 rgba(255, 220, 150, 0.08);
+}
+
+.action-btn--primary:hover { background: linear-gradient(180deg, #3d3120 0%, #241d13 100%); }
+.action-btn--primary.is-active { border-color: rgba(255, 190, 80, 0.75); }
+
+/* Narrator "speaking" bars */
+.eq { display: inline-flex; align-items: flex-end; gap: 3px; height: 16px; }
+.eq i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  animation: eq 0.9s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.eq i:nth-child(2) { animation-delay: -0.3s; }
+.eq i:nth-child(3) { animation-delay: -0.6s; }
+.eq i:nth-child(4) { animation-delay: -0.15s; }
+@keyframes eq { 0%, 100% { transform: scaleY(0.25); } 50% { transform: scaleY(1); } }
+
+.narrator-status {
+  margin-top: 14px;
+  font: italic 0.95rem/1.5 var(--font-serif);
+  color: #d9b56f;
+  text-align: center;
+  animation: breathe 1.8s ease-in-out infinite;
+}
+.narrator-status--error { color: #ff8aa0; animation: none; font-style: normal; font-family: var(--font-sans); font-size: 0.85rem; }
+@keyframes breathe { 50% { opacity: 0.55; } }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 10000;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font: 500 0.9rem/1.3 var(--font-sans);
+  color: var(--spirit);
+  background: rgba(24, 22, 34, 0.95);
+  border: 1px solid rgba(255, 170, 0, 0.35);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.offline-note {
+  margin-top: var(--space-md);
+  max-width: 420px;
+  text-align: center;
+  font: 0.8rem/1.5 var(--font-sans);
+  color: var(--ash);
+}
+
+/* --- Eulogy scroll ------------------------------------------ */
+.scroll-title { font-family: var(--font-display); }
+.scroll-text:lang(fa) { font-size: 1.3rem; line-height: 2.1; }
+
+.scroll-listen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--space-md);
+  padding: 10px 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  font: 600 0.9rem/1 var(--font-sans);
+  color: var(--ink);
+  background: rgba(42, 34, 26, 0.06);
+  border: 1px solid rgba(42, 34, 26, 0.35);
+}
+
+.scroll-listen:hover { background: rgba(42, 34, 26, 0.12); }
+.scroll-listen .mic-spinner { border-color: rgba(42, 34, 26, 0.2); border-top-color: var(--ink); }
+.scroll-footer .narrator-status { color: #6b5234; margin: 0 0 var(--space-md); }
+.scroll-close { inset-inline-end: 10px; right: auto; }
+[dir="ltr"] .scroll-close { right: 10px; }
+
+/* --- Cemetery ----------------------------------------------- */
+.cemetery-title { font-family: var(--font-display); }
+
+.cemetery-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+
+.mini-grave {
+  padding: 0;
+  border-radius: 48% 48% 10px 10px / 24% 24% 10px 10px;
+  background: linear-gradient(180deg, #2c2c3d 0%, #1b1b26 60%, #15151d 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.05), 0 10px 22px rgba(0, 0, 0, 0.45);
+}
+
+.mini-grave-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 14px 16px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  border-radius: inherit;
+}
+
+.mini-grave-rip { font-family: 'EB Garamond', serif; font-size: 1.3rem; color: var(--ash); opacity: 0.6; line-height: 1; }
+.mini-grave-name { font-size: 0.95rem; }
+.mini-grave-name:lang(fa) { font-size: 1.05rem; line-height: 1.7; }
+
+.mini-grave-delete {
+  top: auto;
+  left: auto;
+  bottom: 8px;
+  inset-inline-end: 8px;
+  width: 26px;
+  height: 26px;
+}
+
+@media (hover: none) {
+  .mini-grave-delete { opacity: 0.55; }
+}
+
+/* --- Footer ------------------------------------------------- */
+.footer {
+  margin-top: auto;
+  padding: var(--space-xl) var(--space-md) calc(var(--space-lg) + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  font: 0.75rem/1.5 var(--font-sans);
+  color: var(--ash);
+  opacity: 0.5;
+  letter-spacing: 0.5px;
+}
+
+/* --- Phones ------------------------------------------------- */
+@media (max-width: 640px) {
+  .app-container { padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 8px); }
+
+  .header { padding: 22px 4px 16px; }
+  .header-skull { font-size: 2rem; }
+  .header h1 { font-size: clamp(1.75rem, 8.4vw, 2.2rem); max-width: 100%; }
+  .header h1:lang(ru),
+  .header h1:lang(tg) { font-size: clamp(1.9rem, 9vw, 2.4rem); }
+  .header h1:lang(fa) { font-size: clamp(2rem, 10vw, 2.5rem); }
+  .header p { font-size: 1.05rem; line-height: 1.5; }
+
+  .confessional { margin: 4px auto 28px; }
+  .confessional-box { max-width: none; padding: 20px 16px 22px; margin: 0; border-radius: 18px; }
+  .confessional-textarea { min-height: 140px; font-size: 1.05rem; }
+  .bury-btn { padding: 16px 12px 19px; font-size: 1.5rem; letter-spacing: 1px; }
+
+  .gravestone {
+    width: 100%;
+    max-width: 380px;
+    margin: 10px auto;
+    padding: 46px 18px 24px;
+    border-radius: 50% 50% 10px 10px / 15% 15% 10px 10px;
+  }
+
+  .grave-rip { font-size: 1.9rem; }
+  .grave-rip:lang(fa) { font-size: 2.1rem; }
+  .grave-mistake { font-size: 1.08rem; }
+  .grave-epitaph { font-size: 1.05rem; line-height: 1.6; }
+
+  .grave-actions { max-width: none; gap: 10px; margin-top: var(--space-lg); }
+  .action-btn { width: auto; max-width: none; font-size: 0.92rem; padding: 12px 10px; }
+
+  .scroll-modal { padding: 44px 18px 34px; }
+  .scroll-title { font-size: 1.5rem; }
+  .scroll-text { font-size: 1.08rem; line-height: 1.7; }
+  .scroll-text:lang(fa) { font-size: 1.22rem; line-height: 2; }
+
+  /* The old phone rule shrank the whole scene to 65% (and its text to ~12px). */
+  .digging-scene {
+    transform: none;
+    width: 100%;
+    left: auto;
+    margin: 8px auto 28px;
+    padding: 40px 12px 30px;
+  }
+  .loading-text { font-size: 1.15rem; }
+
+  .cemetery-section { margin-top: var(--space-lg); }
+  .cemetery-grid { grid-template-columns: 1fr 1fr; max-width: none; padding: 0; gap: 12px; }
+  .mini-grave { margin: 0; padding: 0; }
+
+  /* Webs frame the screen instead of sitting on the title. */
+  .spider-web-container { opacity: 0.55; }
+  .web { min-width: 0; min-height: 0; }
+  .web-tl, .web-tr { width: 48vw; height: 48vw; }
+  .web-bl, .web-br { width: 40vw; height: 40vw; }
+  .web-left, .web-right { display: none; }
+}
+
+@media (max-width: 370px) {
+  .lang-option { padding: 0 9px; font-size: 0.74rem; }
+  .sound-toggle { width: 38px; height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .film-grain, .web, .particle, .mic-btn--recording, .narrator-status { animation: none !important; }
 }

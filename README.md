@@ -62,7 +62,8 @@ http://localhost:5173
 | Animations | Framer Motion     |
 | Backend  | Node.js + Express   |
 | Storage  | JSON file           |
-| AI       | Gemini (Vertex AI)  |
+| AI       | Gemini (Vertex AI): text, speech-to-text, TTS |
+| Languages | Tajik, Russian, English, Persian (RTL) |
 
 ## API
 
@@ -71,6 +72,8 @@ http://localhost:5173
 | POST   | `/api/bury`         | Похоронить ошибку        |
 | GET    | `/api/graves`       | Мои могилы (по сессии)   |
 | DELETE | `/api/graves/:id`   | Удалить могилу           |
+| GET    | `/api/graves/:id/voice.mp3` | Панихида голосом |
+| POST   | `/api/transcribe`   | Голос → текст (WAV)      |
 | GET    | `/api/health`       | Статус сервера           |
 
 ### Admin Endpoints
@@ -82,21 +85,38 @@ curl http://localhost:3000/api/admin/graves -H "X-Admin-Key: $ADMIN_KEY"
 curl http://localhost:3000/api/admin/logs   -H "X-Admin-Key: $ADMIN_KEY"
 ```
 
-## AI (Gemini)
+## Languages / Языки
 
-Надгробия пишет Gemini. Без настроек работают шаблоны. /
-Gemini writes the gravestones; with nothing configured the static templates are used.
+Тоҷикӣ · Русский · English · فارسی — the site switches instantly (top right), remembers the choice,
+and `?lang=tg|ru|en|fa` in a link opens it in that language. Persian is laid out right-to-left and dated
+in the Solar Hijri calendar. The AI answers in the language the mistake is written in: Tajik letters
+(ғ ӣ қ ӯ ҳ ҷ), Russian letters (ы щ ь ц) and Persian script decide it; plain Cyrillic or Latin text follows
+the site language, and Gemini also recognises transliterated Tajik/Russian/Persian.
+
+## AI (Gemini on Vertex AI)
+
+| Feature | Endpoint | Model |
+|---------|----------|-------|
+| Epitaph, eulogy, cause of death | `POST /api/bury` | `GEMINI_MODEL` (default `gemini-2.5-flash`) |
+| 🎙️ Voice confession → text (16 kHz WAV from the browser) | `POST /api/transcribe` | same |
+| 🔊 The narrator reads the eulogy, streamed as MP3 and cached | `GET /api/graves/:id/voice.mp3` | `TTS_MODELS` (Pro TTS first, so it does not share Qobus's Flash TTS quota) |
+
+With nothing configured the static templates are used and voice is off.
 
 | Variable | Purpose |
 |----------|---------|
 | `VERTEX_AI_PROJECT` | Google Cloud project → Gemini on **Vertex AI** |
 | `VERTEX_AI_LOCATION` | default `us-central1` |
-| `GOOGLE_APPLICATION_CREDENTIALS` | path to a service-account JSON with the *Vertex AI User* role (not needed if `gcloud auth application-default login` was run) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | path to Google credentials (not needed if `gcloud auth application-default login` was run) |
 | `GEMINI_API_KEY` | alternative to Vertex: an AI Studio key |
 | `GEMINI_MODEL` | default `gemini-2.5-flash` |
+| `TTS_MODELS`, `TTS_VOICE` | narrator models (comma-separated, tried in order) and voice (default `Charon`) |
 
-Limits (every burial is a paid AI call): `BURY_PER_IP_PER_MINUTE` (6), `BURY_PER_IP_PER_DAY` (60),
-`AI_CALLS_PER_DAY` (2000 — after that, templates until midnight UTC). Mistakes are capped at 500 characters.
+Every burial, transcription and narration is a paid AI call, so each has limits:
+`BURY_PER_IP_PER_MINUTE` (6) / `BURY_PER_IP_PER_DAY` (60) / `AI_CALLS_PER_DAY` (2000),
+`STT_PER_IP_PER_MINUTE` (6) / `STT_PER_IP_PER_DAY` (40) / `STT_CALLS_PER_DAY` (1500),
+`TTS_PER_IP_PER_MINUTE` (3) / `TTS_PER_IP_PER_DAY` (20) / `TTS_CALLS_PER_DAY` (300).
+Mistakes are capped at 500 characters, recordings at 30 seconds.
 
 ## На сервере / Production
 

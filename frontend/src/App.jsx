@@ -1,15 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import {
+    I18nContext, useI18n, translator, initialLang, LANGS, langMeta, guessAnswerLang, OFFLINE_TEMPLATES,
+} from './i18n'
+import { startRecording, micSupported } from './recorder'
+import { shareGrave } from './shareCard'
 
 // ====================================================
 // 💀 Session Management
 // ====================================================
 
 function getSessionId() {
-    let id = localStorage.getItem('funeral-session-id')
+    let id = null
+    try { id = localStorage.getItem('funeral-session-id') } catch { /* private mode */ }
     if (!id) {
-        id = (self.crypto?.randomUUID?.() ?? Date.now().toString())
-        localStorage.setItem('funeral-session-id', id)
+        id = (self.crypto?.randomUUID?.() ?? `s-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+        try { localStorage.setItem('funeral-session-id', id) } catch { /* private mode */ }
     }
     return id
 }
@@ -20,81 +26,52 @@ const SESSION_ID = getSessionId()
 // Set VITE_API_URL only when the API lives on another host.
 const API_URL = import.meta.env.VITE_API_URL || ''
 
-// --- FRONTEND-ONLY FALLBACK DATA ---
-const EPITAPHS = {
-    ru: [
-        (m) => `Здесь покоится «${m}» — решение настолько дерзкое, что даже Дарвин аплодировал.`,
-        (m) => `Светлая память «${m}». В 3 часа ночи это казалось гениальной идеей.`,
-        (m) => `Покойся с миром, «${m}». Ты научило нас, как НЕ надо делать.`,
-        (m) => `Любимое «${m}» — рождённое в самоуверенности, умершее от здравого смысла.`,
-    ],
-    en: [
-        (m) => `Here lies "${m}" — a decision so bold, even Darwin applauded.`,
-        (m) => `In loving memory of "${m}". It seemed brilliant at 3am.`,
-        (m) => `Rest in peace, "${m}". You taught us all what NOT to do.`,
-        (m) => `Beloved "${m}" — born in overconfidence, died in hindsight.`,
-    ],
-}
+// The site language, sent with every request so server messages come back in it.
+let currentLang = 'en'
 
-const EULOGIES = {
-    ru: [
-        (m) => `Дорогие скорбящие, мы собрались здесь, чтобы проводить «${m}» в последний путь. Оно ворвалось в нашу жизнь как товарный поезд плохих решений и ушло так же — громко, с дымом и оставив всех в недоумении. Пусть покоится в вечном кринже.`,
-        (m) => `Сегодня мы провожаем «${m}» — решение, которое шло, чтобы наша мудрость могла бежать. Оно появилось в момент слабости и задержалось ровно настолько, чтобы вызвать максимальный стыд. Спасибо за службу.`,
-    ],
-    en: [
-        (m) => `Dearly departed, we gather here today to bid farewell to "${m}". It arrived in our lives like a freight train of bad judgment, and it left the same way — loudly, with smoke, and leaving everyone confused. May it rest in eternal cringe.`,
-        (m) => `We come together to mourn "${m}" — a decision that walked so our wisdom could run. It appeared during a moment of weakness and stayed just long enough to cause maximum embarrassment. Thank you for your service.`,
-    ],
-}
+const MAX_MISTAKE_LENGTH = 500
 
-const CAUSES_OF_DEATH = {
-    ru: ["Терминальное перемудривание", "Острая нехватка здравого смысла", "Смерть от проверки реальностью"],
-    en: ["Terminal overthinking", "Acute lack of common sense", "Death by reality check"],
-}
-
-function detectLanguage(text) {
-    const cyrillicCount = (text.match(/[\u0400-\u04FF]/g) || []).length
-    const latinCount = (text.match(/[a-zA-Z]/g) || []).length
-    return cyrillicCount > latinCount ? 'ru' : 'en'
-}
+// --- FRONTEND-ONLY FALLBACK (backend unreachable) ---
 
 function localBury(mistake) {
-    const lang = detectLanguage(mistake)
+    const lang = guessAnswerLang(mistake, currentLang)
+    const tpl = OFFLINE_TEMPLATES[lang] || OFFLINE_TEMPLATES.en
     const now = new Date()
-    const diedRu = `${now.getDate()} ${['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'][now.getMonth()]} ${now.getFullYear()}`
-    const diedEn = now.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     const randomFrom = (arr) => arr[Math.floor(Math.random() * arr.length)]
-
+    const short = mistake.length > 80 ? `${mistake.slice(0, 80).trim()}...` : mistake
     const grave = {
-        id: 'local-' + Math.random().toString(36).substr(2, 9),
+        id: 'local-' + Math.random().toString(36).slice(2, 11),
         mistake,
-        born: lang === 'ru' ? '2025' : '2025',
-        died: lang === 'ru' ? diedRu : diedEn,
-        epitaph: randomFrom(EPITAPHS[lang])(mistake),
-        eulogy: randomFrom(EULOGIES[lang])(mistake),
-        causeOfDeath: randomFrom(CAUSES_OF_DEATH[lang]),
+        born: String(now.getFullYear() - 1 - Math.floor(Math.random() * 5)),
+        died: String(now.getFullYear()),
+        epitaph: randomFrom(tpl.epitaphs)(short),
+        eulogy: randomFrom(tpl.eulogies)(short),
+        causeOfDeath: randomFrom(tpl.causes),
+        lang,
         buriedAt: now.toISOString(),
-        isLocal: true
+        isLocal: true,
     }
-
-    const existing = JSON.parse(localStorage.getItem('funeral-local-graves') || '[]')
-    localStorage.setItem('funeral-local-graves', JSON.stringify([grave, ...existing]))
+    try {
+        const existing = JSON.parse(localStorage.getItem('funeral-local-graves') || '[]')
+        localStorage.setItem('funeral-local-graves', JSON.stringify([grave, ...existing]))
+    } catch { /* private mode */ }
     return grave
 }
 
 function getLocalGraves() {
-    return JSON.parse(localStorage.getItem('funeral-local-graves') || '[]')
+    try { return JSON.parse(localStorage.getItem('funeral-local-graves') || '[]') } catch { return [] }
 }
 
 function deleteLocalGrave(id) {
-    const existing = JSON.parse(localStorage.getItem('funeral-local-graves') || '[]')
-    localStorage.setItem('funeral-local-graves', JSON.stringify(existing.filter(g => g.id !== id)))
+    const existing = getLocalGraves()
+    try { localStorage.setItem('funeral-local-graves', JSON.stringify(existing.filter(g => g.id !== id))) } catch { /* private mode */ }
 }
 
 async function apiFetch(path, options = {}) {
     const headers = {
         'Content-Type': 'application/json',
         'X-Session-Id': SESSION_ID,
+        'X-Lang': currentLang,
         ...options.headers,
     }
     let res
@@ -125,28 +102,45 @@ async function apiFetch(path, options = {}) {
     }
     if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Что-то пошло не так в склепе...')
+        throw new Error(err.error || translator(currentLang)('genericError'))
     }
     return res.json()
 }
 
 // ====================================================
-// 💀 Loading Messages
+// 🔊 One audio context for the whole page
 // ====================================================
+//
+// iOS allows only a handful of AudioContexts per page; the old code made a new one
+// for every burial thud and went silent after a few burials.
 
-const LOADING_MESSAGES = [
-    "Копаем могилу...",
-    "Полируем надгробие...",
-    "Пишем эпитафию кровью...",
-    "Зажигаем свечи...",
-    "Собираем скорбящих...",
-    "Готовим панихиду...",
-    "Вызываем священника...",
-    "Заказываем гроб премиум-класса...",
-    "Призываем духов...",
-    "Освящаем землю...",
-]
+let sharedCtx = null
 
+function audioCtx() {
+    if (!sharedCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext
+        if (!Ctx) return null
+        sharedCtx = new Ctx()
+    }
+    if (sharedCtx.state === 'suspended') sharedCtx.resume().catch(() => {})
+    return sharedCtx
+}
+
+// The ambience's master volume: muted by the user, ducked while the narrator speaks.
+const ambient = { gain: null, muted: false, ducked: false }
+
+function applyAmbientVolume() {
+    if (!ambient.gain || !sharedCtx) return
+    const target = ambient.muted ? 0.0001 : ambient.ducked ? 0.06 : 0.4
+    const now = sharedCtx.currentTime
+    ambient.gain.gain.cancelScheduledValues(now)
+    ambient.gain.gain.setTargetAtTime(target, now, 0.25)
+}
+
+function duckAmbient(on) {
+    ambient.ducked = on
+    applyAmbientVolume()
+}
 // ====================================================
 // 💀 Particles Component
 // ====================================================
@@ -181,20 +175,25 @@ function Particles() {
 // 🔊 AMBIENT HORROR SOUNDSCAPE
 // ==============================================
 
+// ==============================================
+// 🔊 AMBIENT HORROR SOUNDSCAPE
+// ==============================================
+
 function AmbientHorror({ isMuted }) {
-    const audioContextRef = useRef(null);
-    const nodesRef = useRef([]);
+    const startedRef = useRef(false);
 
     const startAudio = useCallback(() => {
-        if (audioContextRef.current) return;
+        if (startedRef.current) return;
 
         try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            audioContextRef.current = ctx;
+            const ctx = audioCtx();
+            if (!ctx) return;
+            startedRef.current = true;
 
             const masterGain = ctx.createGain();
-            masterGain.gain.setValueAtTime(isMuted ? 0.0001 : 0.4, ctx.currentTime);
+            masterGain.gain.setValueAtTime(ambient.muted ? 0.0001 : 0.4, ctx.currentTime);
             masterGain.connect(ctx.destination);
+            ambient.gain = masterGain;
 
             // --- LAYER 1: Deep Dread Drone ---
             const drone = ctx.createOscillator();
@@ -280,7 +279,7 @@ function AmbientHorror({ isMuted }) {
 
             // --- LAYER 4: Heartbeat Pulse ---
             const createBeat = () => {
-                if (isMuted) return;
+                if (ambient.muted || ambient.ducked) return;
                 const osc = ctx.createOscillator();
                 const g = ctx.createGain();
                 osc.type = 'sine';
@@ -297,7 +296,7 @@ function AmbientHorror({ isMuted }) {
                 osc.start();
                 osc.stop(ctx.currentTime + 0.5);
             };
-            const beatInterval = setInterval(() => {
+            setInterval(() => {
                 createBeat();
                 setTimeout(createBeat, 350);
             }, 1800);
@@ -342,11 +341,10 @@ function AmbientHorror({ isMuted }) {
             // We'll skip connecting high-res distortion for mobile performance,
             // just use a subtle lowpass grit.
 
-            nodesRef.current = [masterGain, beatInterval];
         } catch (e) {
             console.warn("Horror Audio Pipeline failed", e);
         }
-    }, [isMuted]);
+    }, []);
 
     useEffect(() => {
         const handleInteraction = () => {
@@ -363,10 +361,8 @@ function AmbientHorror({ isMuted }) {
     }, [startAudio]);
 
     useEffect(() => {
-        if (nodesRef.current.length > 0) {
-            const now = audioContextRef.current.currentTime;
-            nodesRef.current[0].gain.exponentialRampToValueAtTime(isMuted ? 0.0001 : 0.4, now + 1.0);
-        }
+        ambient.muted = isMuted;
+        applyAmbientVolume();
     }, [isMuted]);
 
     return null;
@@ -547,18 +543,54 @@ function ScreenOverlays() {
 }
 
 // ====================================================
+// 💀 Top bar — sound + language
+// ====================================================
+
+function TopBar({ isMuted, onToggleMute }) {
+    const { lang, setLang, t } = useI18n()
+    return (
+        <div className="topbar">
+            <button
+                type="button"
+                className={`sound-toggle${isMuted ? ' is-muted' : ''}`}
+                onClick={onToggleMute}
+                aria-pressed={!isMuted}
+                aria-label={isMuted ? t('soundOff') : t('soundOn')}
+                title={isMuted ? t('soundOff') : t('soundOn')}
+            >
+                {isMuted ? '🔇' : '🔊'}
+            </button>
+            <div className="lang-switch" role="radiogroup" aria-label={t('language')}>
+                {LANGS.map((l) => (
+                    <button
+                        key={l.code}
+                        type="button"
+                        role="radio"
+                        aria-checked={lang === l.code}
+                        className={`lang-option${lang === l.code ? ' is-active' : ''}`}
+                        lang={l.code}
+                        dir={l.dir}
+                        onClick={() => setLang(l.code)}
+                    >
+                        {l.native}
+                    </button>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+// ====================================================
 // 💀 Header
 // ====================================================
 
-function Header({ isMuted, onToggleMute }) {
+function Header() {
+    const { t } = useI18n()
     return (
         <header className="header">
-            <div className="header-top">
-
-                <div className="header-skull">💀</div>
-            </div>
-            <h1>Funeral for Stupid Decisions</h1>
-            <p>Исповедай своё худшее решение. Мы устроим ему достойные похороны.</p>
+            <div className="header-skull" aria-hidden="true">💀</div>
+            <h1>{t('title')}</h1>
+            <p>{t('subtitle')}</p>
         </header>
     )
 }
@@ -567,46 +599,115 @@ function Header({ isMuted, onToggleMute }) {
 // 💀 Confessional Input
 // ====================================================
 
+function playBurialThud() {
+    if (ambient.muted) return
+    try {
+        const ctx = audioCtx()
+        if (!ctx) return
+        // Deep thud
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.frequency.setValueAtTime(60, ctx.currentTime)
+        osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 0.5)
+        gain.gain.setValueAtTime(0.3, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+        osc.start(ctx.currentTime)
+        osc.stop(ctx.currentTime + 0.5)
+        // Bell tone
+        const osc2 = ctx.createOscillator()
+        const gain2 = ctx.createGain()
+        osc2.type = 'sine'
+        osc2.connect(gain2)
+        gain2.connect(ctx.destination)
+        osc2.frequency.setValueAtTime(440, ctx.currentTime + 0.1)
+        osc2.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 1.2)
+        gain2.gain.setValueAtTime(0.12, ctx.currentTime + 0.1)
+        gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2)
+        osc2.start(ctx.currentTime + 0.1)
+        osc2.stop(ctx.currentTime + 1.2)
+    } catch (e) { /* no audio support, no problem */ }
+}
+
 function Confessional({ onSubmit, isLoading }) {
+    const { lang, t } = useI18n()
     const [mistake, setMistake] = useState('')
     const [ripple, setRipple] = useState(false)
+    const [mic, setMic] = useState({ state: 'idle', seconds: 0, error: null }) // idle | starting | recording | transcribing
+    const recorderRef = useRef(null)
+    const placeholders = t('placeholders')
+    const [placeholder, setPlaceholder] = useState(0)
+
+    useEffect(() => {
+        const id = setInterval(() => setPlaceholder((i) => (i + 1) % placeholders.length), 3500)
+        return () => clearInterval(id)
+    }, [placeholders.length])
+
+    // Leaving the page mid-recording must release the microphone.
+    useEffect(() => () => recorderRef.current?.stop(), [])
 
     const handleSubmit = (e) => {
         e.preventDefault()
-        if (!mistake.trim() || isLoading) return
+        if (!mistake.trim() || isLoading || mic.state !== 'idle') return
         // Trigger stone button ripple/shake
         setRipple(true)
         setTimeout(() => setRipple(false), 400)
-        // Play burial sound via Web Audio API
-        try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)()
-            // Deep thud
-            const osc = ctx.createOscillator()
-            const gain = ctx.createGain()
-            osc.connect(gain)
-            gain.connect(ctx.destination)
-            osc.frequency.setValueAtTime(60, ctx.currentTime)
-            osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 0.5)
-            gain.gain.setValueAtTime(0.3, ctx.currentTime)
-            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
-            osc.start(ctx.currentTime)
-            osc.stop(ctx.currentTime + 0.5)
-            // Bell tone
-            const osc2 = ctx.createOscillator()
-            const gain2 = ctx.createGain()
-            osc2.type = 'sine'
-            osc2.connect(gain2)
-            gain2.connect(ctx.destination)
-            osc2.frequency.setValueAtTime(440, ctx.currentTime + 0.1)
-            osc2.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 1.2)
-            gain2.gain.setValueAtTime(0.12, ctx.currentTime + 0.1)
-            gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2)
-            osc2.start(ctx.currentTime + 0.1)
-            osc2.stop(ctx.currentTime + 1.2)
-        } catch (e) { /* no audio support, no problem */ }
+        playBurialThud()
         onSubmit(mistake.trim())
         setMistake('')
     }
+
+    const toggleMic = async () => {
+        if (mic.state === 'recording') {
+            recorderRef.current?.stop()
+            return
+        }
+        if (mic.state !== 'idle') return
+        if (!micSupported()) {
+            setMic({ state: 'idle', seconds: 0, error: t('micUnsupported') })
+            return
+        }
+        setMic({ state: 'starting', seconds: 0, error: null })
+        duckAmbient(true)
+        let recorder
+        try {
+            recorder = await startRecording({ maxSeconds: 30 })
+        } catch (e) {
+            duckAmbient(false)
+            setMic({ state: 'idle', seconds: 0, error: t('micDenied') })
+            return
+        }
+        recorderRef.current = recorder
+        setMic({ state: 'recording', seconds: 0, error: null })
+        const tick = setInterval(() => setMic((m) => (m.state === 'recording'
+            ? { ...m, seconds: Math.floor(recorder.elapsed()) } : m)), 250)
+        const wav = await recorder.done
+        clearInterval(tick)
+        recorderRef.current = null
+        duckAmbient(false)
+        if (!wav) {
+            setMic({ state: 'idle', seconds: 0, error: null })
+            return
+        }
+        setMic({ state: 'transcribing', seconds: 0, error: null })
+        try {
+            const res = await fetch(`${API_URL}/api/transcribe?lang=${lang}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'audio/wav', 'X-Session-Id': SESSION_ID, 'X-Lang': lang },
+                body: wav,
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.error || t('genericError'))
+            setMistake((prev) => `${prev.trim() ? `${prev.trim()} ` : ''}${data.text}`.slice(0, MAX_MISTAKE_LENGTH))
+            setMic({ state: 'idle', seconds: 0, error: null })
+        } catch (e) {
+            setMic({ state: 'idle', seconds: 0, error: e.message || t('genericError') })
+        }
+    }
+
+    const answerLang = mistake.trim().length > 3 ? guessAnswerLang(mistake, lang) : null
+    const busyMic = mic.state !== 'idle'
 
     return (
         <motion.div
@@ -616,38 +717,80 @@ function Confessional({ onSubmit, isLoading }) {
             transition={{ delay: 0.3, duration: 0.6 }}
         >
             <form className="confessional-box" onSubmit={handleSubmit}>
-                <label className="confessional-label">
-                    <span>🕯️</span> Исповедай свой грех...
+                <label className="confessional-label" htmlFor="confession">
+                    <span aria-hidden="true">🕯️</span> {t('confessLabel')}
                 </label>
-                <textarea
-                    className="confessional-textarea"
-                    placeholder="I spent all time building this… for absolutely u 😌"                    value={mistake}
-                    onChange={(e) => setMistake(e.target.value)}
-                    maxLength={500}
-                    disabled={isLoading}
-                />
-                <div className="textarea-footer">
-                    <span className="char-count">{mistake.length}/500</span>
-                    <span className="lang-hint">
-                        {mistake.length > 3 && (
-                            /[\u0400-\u04FF]/.test(mistake) ? '🇷🇺 Русский' : '🇬🇧 English'
-                        )}
-                    </span>
+                <div className={`textarea-wrap${mic.state === 'recording' ? ' is-recording' : ''}`}>
+                    <textarea
+                        id="confession"
+                        className="confessional-textarea"
+                        placeholder={placeholders[placeholder]}
+                        value={mistake}
+                        onChange={(e) => setMistake(e.target.value)}
+                        maxLength={MAX_MISTAKE_LENGTH}
+                        disabled={isLoading || busyMic}
+                        dir="auto"
+                    />
+                    {busyMic && (
+                        <div className="mic-overlay" aria-live="polite">
+                            {mic.state === 'recording' && (
+                                <>
+                                    <span className="rec-dot" aria-hidden="true" />
+                                    <span className="rec-time">0:{String(mic.seconds).padStart(2, '0')}</span>
+                                    <span>{t('micListening')}</span>
+                                </>
+                            )}
+                            {mic.state === 'starting' && <span>🎙️</span>}
+                            {mic.state === 'transcribing' && (
+                                <>
+                                    <span className="mic-spinner" aria-hidden="true" />
+                                    <span>{t('micTranscribing')}</span>
+                                </>
+                            )}
+                        </div>
+                    )}
+                    <button
+                        type="button"
+                        className={`mic-btn mic-btn--${mic.state}`}
+                        onClick={toggleMic}
+                        disabled={isLoading || mic.state === 'transcribing' || mic.state === 'starting'}
+                        aria-label={mic.state === 'recording' ? t('stop') : t('micStart')}
+                        title={mic.state === 'recording' ? t('stop') : t('micStart')}
+                    >
+                        {mic.state === 'recording' ? <span className="mic-stop-square" /> : <MicIcon />}
+                    </button>
                 </div>
+                <div className="textarea-footer">
+                    <span className="char-count">{mistake.length}/{MAX_MISTAKE_LENGTH}</span>
+                    {answerLang && (
+                        <span className="lang-hint">
+                            {t('answerIn')}: <b>{t('langNames')[answerLang]}</b>
+                        </span>
+                    )}
+                </div>
+                {mic.error && <p className="mic-error" role="alert">{mic.error}</p>}
                 <button
                     type="submit"
                     className={`bury-btn${ripple ? ' bury-btn--strike' : ''}`}
-                    disabled={!mistake.trim() || isLoading}
+                    disabled={!mistake.trim() || isLoading || busyMic}
                 >
-                    <span className="btn-skull">💀</span>
-                    <span className="btn-text">Start</span>
-                    <span className="btn-skull">💀</span>
+                    <span className="btn-skull" aria-hidden="true">💀</span>
+                    <span className="btn-text">{t('bury')}</span>
+                    <span className="btn-skull" aria-hidden="true">💀</span>
                 </button>
             </form>
         </motion.div>
     )
 }
 
+function MicIcon() {
+    return (
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" />
+        </svg>
+    )
+}
 // ====================================================
 // 💀 Stickman SVG Component
 // ====================================================
@@ -724,12 +867,14 @@ function DirtParticles() {
 // ====================================================
 
 function DiggingScene() {
-    const [msgIndex, setMsgIndex] = useState(0)
+    const { t } = useI18n()
+    const messages = t('loading')
+    const [msgIndex, setMsgIndex] = useState(() => Math.floor(Math.random() * messages.length))
     const [phase, setPhase] = useState(0) // 0=digging, 1=coffin lowering
 
     useEffect(() => {
         const msgInterval = setInterval(() => {
-            setMsgIndex((prev) => (prev + 1) % LOADING_MESSAGES.length)
+            setMsgIndex((prev) => (prev + 1) % messages.length)
         }, 1800)
         const phaseInterval = setInterval(() => {
             setPhase(p => (p + 1) % 3)
@@ -738,7 +883,7 @@ function DiggingScene() {
             clearInterval(msgInterval)
             clearInterval(phaseInterval)
         }
-    }, [])
+    }, [messages.length])
 
     return (
         <motion.div
@@ -830,7 +975,7 @@ function DiggingScene() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.4 }}
             >
-                {LOADING_MESSAGES[msgIndex]}
+                {messages[msgIndex]}
             </motion.p>
 
             <div className="loading-dots">
@@ -841,10 +986,104 @@ function DiggingScene() {
 }
 
 // ====================================================
+// 🔊 The narrator — reads the eulogy aloud
+// ====================================================
+//
+// One <audio> element for the page, so two narrators never talk over each other.
+// play() runs inside the tap itself (not after an await), which is what iOS needs;
+// the server streams the MP3 as Gemini speaks, so the first words arrive in ~2 s.
+
+const narratorAudio = typeof Audio !== 'undefined' ? new Audio() : null
+let narratorOwner = null
+
+function stopNarrator() {
+    if (!narratorAudio) return
+    narratorAudio.pause()
+    narratorAudio.removeAttribute('src')
+    narratorAudio.load()
+    narratorOwner = null
+    duckAmbient(false)
+}
+
+function useNarrator(grave) {
+    const { lang } = useI18n()
+    const [state, setState] = useState(() => (narratorOwner === grave.id && narratorAudio && !narratorAudio.paused ? 'playing' : 'idle'))
+
+    useEffect(() => {
+        if (!narratorAudio) return
+        const mine = () => narratorOwner === grave.id
+        const onPlaying = () => mine() && setState('playing')
+        const onWaiting = () => mine() && setState((s) => (s === 'playing' ? 'loading' : s))
+        const onEnded = () => { if (mine()) { setState('idle'); narratorOwner = null; duckAmbient(false) } }
+        const onError = () => { if (mine() && narratorAudio.getAttribute('src')) { setState('error'); narratorOwner = null; duckAmbient(false) } }
+        const onEmptied = () => { if (!mine()) setState((s) => (s === 'error' ? s : 'idle')) }
+        narratorAudio.addEventListener('playing', onPlaying)
+        narratorAudio.addEventListener('waiting', onWaiting)
+        narratorAudio.addEventListener('ended', onEnded)
+        narratorAudio.addEventListener('error', onError)
+        narratorAudio.addEventListener('emptied', onEmptied)
+        return () => {
+            narratorAudio.removeEventListener('playing', onPlaying)
+            narratorAudio.removeEventListener('waiting', onWaiting)
+            narratorAudio.removeEventListener('ended', onEnded)
+            narratorAudio.removeEventListener('error', onError)
+            narratorAudio.removeEventListener('emptied', onEmptied)
+        }
+    }, [grave.id])
+
+    const toggle = () => {
+        if (!narratorAudio) return
+        if (narratorOwner === grave.id && (state === 'playing' || state === 'loading')) {
+            stopNarrator()
+            setState('idle')
+            return
+        }
+        stopNarrator()
+        narratorOwner = grave.id
+        setState('loading')
+        duckAmbient(true)
+        narratorAudio.src = `${API_URL}/api/graves/${grave.id}/voice.mp3?s=${encodeURIComponent(SESSION_ID)}&lang=${lang}`
+        narratorAudio.play().catch((e) => {
+            if (e.name === 'AbortError' || narratorOwner !== grave.id) return
+            setState('error')
+            narratorOwner = null
+            duckAmbient(false)
+        })
+    }
+
+    return { state, toggle, available: !!narratorAudio && grave.voiceAvailable && !grave.isLocal }
+}
+
+function NarratorButton({ narrator, className = 'action-btn action-btn--primary' }) {
+    const { t } = useI18n()
+    const active = narrator.state === 'playing' || narrator.state === 'loading'
+    return (
+        <button type="button" className={`${className}${active ? ' is-active' : ''}`} onClick={narrator.toggle} aria-pressed={active}>
+            {narrator.state === 'playing' ? (
+                <span className="eq" aria-hidden="true"><i /><i /><i /><i /></span>
+            ) : narrator.state === 'loading' ? (
+                <span className="mic-spinner" aria-hidden="true" />
+            ) : (
+                <span className="btn-icon" aria-hidden="true">🔊</span>
+            )}
+            <span className="btn-text">{active ? t('stop') : t('listen')}</span>
+        </button>
+    )
+}
+
+function NarratorStatus({ narrator }) {
+    const { t } = useI18n()
+    if (narrator.state === 'loading') return <p className="narrator-status" aria-live="polite">{t('narratorWarming')}</p>
+    if (narrator.state === 'error') return <p className="narrator-status narrator-status--error" role="alert">{t('narratorError')}</p>
+    return null
+}
+
+// ====================================================
 // 💀 Scroll Modal — Full Funeral Speech
 // ====================================================
 
-function ScrollModal({ eulogy, onClose }) {
+function ScrollModal({ grave, narrator, onClose }) {
+    const { t } = useI18n()
     useEffect(() => {
         const handleKey = (e) => {
             if (e.key === 'Escape') onClose()
@@ -864,6 +1103,9 @@ function ScrollModal({ eulogy, onClose }) {
         >
             <motion.div
                 className="scroll-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('scrollTitle')}
                 initial={{ scaleY: 0, opacity: 0 }}
                 animate={{ scaleY: 1, opacity: 1 }}
                 exit={{ scaleY: 0, opacity: 0 }}
@@ -876,16 +1118,18 @@ function ScrollModal({ eulogy, onClose }) {
 
                 <div className="scroll-body">
                     <div className="scroll-header">
-                        <div className="scroll-icon">📜</div>
-                        <h3 className="scroll-title">Официальная Панихида</h3>
-                        <div className="scroll-divider">✦ ✦ ✦</div>
+                        <div className="scroll-icon" aria-hidden="true">📜</div>
+                        <h3 className="scroll-title">{t('scrollTitle')}</h3>
+                        <div className="scroll-divider" aria-hidden="true">✦ ✦ ✦</div>
                     </div>
 
-                    <p className="scroll-text">{eulogy}</p>
+                    <p className="scroll-text" lang={grave.lang} dir="auto">{grave.eulogy}</p>
 
                     <div className="scroll-footer">
-                        <div className="scroll-seal">⚰️</div>
-                        <p className="scroll-signed">— Бюро Достойных Похорон, {new Date().getFullYear()}</p>
+                        {narrator.available && <NarratorButton narrator={narrator} className="scroll-listen" />}
+                        <NarratorStatus narrator={narrator} />
+                        <div className="scroll-seal" aria-hidden="true">⚰️</div>
+                        <p className="scroll-signed">{t('scrollSigned')}, {new Date().getFullYear()}</p>
                     </div>
                 </div>
 
@@ -894,7 +1138,7 @@ function ScrollModal({ eulogy, onClose }) {
                     <div className="scroll-curl-line" />
                 </div>
 
-                <button className="scroll-close" onClick={onClose} title="Закрыть (ESC)">
+                <button className="scroll-close" onClick={onClose} title={t('close')} aria-label={t('close')}>
                     ✕
                 </button>
             </motion.div>
@@ -907,14 +1151,36 @@ function ScrollModal({ eulogy, onClose }) {
 // ====================================================
 
 function Gravestone({ data, onBuryAnother }) {
+    const { lang, t } = useI18n()
     const [showScroll, setShowScroll] = useState(false)
+    const [toast, setToast] = useState(null)
+    const narrator = useNarrator(data)
+
+    // Leaving the grave (bury another, open an older one) silences its narrator.
+    useEffect(() => () => { if (narratorOwner === data.id) stopNarrator() }, [data.id])
+
+    useEffect(() => {
+        if (!toast) return
+        const id = setTimeout(() => setToast(null), 2600)
+        return () => clearTimeout(id)
+    }, [toast])
+
+    const onShare = async () => {
+        try {
+            const result = await shareGrave(data, t, lang)
+            if (result === 'saved') setToast(t('shareSaved'))
+        } catch (e) {
+            setToast(t('genericError'))
+        }
+    }
 
     return (
         <>
             <AnimatePresence>
                 {showScroll && (
                     <ScrollModal
-                        eulogy={data.eulogy}
+                        grave={data}
+                        narrator={narrator}
                         onClose={() => setShowScroll(false)}
                     />
                 )}
@@ -964,39 +1230,46 @@ function Gravestone({ data, onBuryAnother }) {
 
                 <motion.div
                     className="gravestone tombstone-clickable"
+                    role="button"
+                    tabIndex={0}
                     initial={{ rotateX: 30 }}
                     animate={{ rotateX: 0 }}
                     transition={{ delay: 0.3, duration: 0.6 }}
                     onClick={() => setShowScroll(true)}
-                    title="Нажми, чтобы прочитать панихиду 📜"
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowScroll(true) } }}
+                    title={t('tapHint')}
                     whileHover={{ scale: 1.02, y: -4 }}
                     whileTap={{ scale: 0.98 }}
                 >
-                    {/* Click hint */}
-                    <div className="tombstone-click-hint">
-                        <span>📜</span> нажми для панихиды
+                    <h2 className="grave-rip">{t('rip')}</h2>
+                    <div className="grave-content" lang={data.lang} dir="auto">
+                        <div className="grave-mistake">{data.mistake}</div>
+                        <div className="grave-dates">{data.born} — {data.died}</div>
+                        <p className="grave-epitaph">{data.epitaph}</p>
                     </div>
-
-                    <h2 className="grave-rip">Покойся с Миром</h2>
-                    <div className="grave-mistake">{data.mistake}</div>
-                    <div className="grave-dates">{data.born} — {data.died}</div>
-                    <p className="grave-epitaph">{data.epitaph}</p>
                     {data.causeOfDeath && (
                         <div className="grave-cause">
-                            <span>⚕️</span> Причина смерти: {data.causeOfDeath}
+                            <span className="grave-cause-label">{t('causeLabel')}</span>
+                            <span lang={data.lang} dir="auto">{data.causeOfDeath}</span>
                         </div>
                     )}
+                    {/* Click hint */}
+                    <div className="tombstone-click-hint">
+                        <span aria-hidden="true">📜</span> {t('tapHint')}
+                    </div>
                 </motion.div>
 
                 {/* Ground mound */}
                 <div className="grave-mound" />
 
                 {/* Candles */}
-                <div className="grave-candles">
+                <div className="grave-candles" aria-hidden="true">
                     <div className="grave-candle">🕯️</div>
                     <div className="grave-candle" style={{ animationDelay: '0.7s' }}>🕯️</div>
                     <div className="grave-candle" style={{ animationDelay: '1.3s' }}>🕯️</div>
                 </div>
+
+                {data.isLocal && <p className="offline-note">{t('offline')}</p>}
 
                 <motion.div
                     className="grave-actions"
@@ -1004,17 +1277,34 @@ function Gravestone({ data, onBuryAnother }) {
                     animate={{ opacity: 1 }}
                     transition={{ delay: 1.2 }}
                 >
-                    <button className="action-btn" onClick={() => setShowScroll(true)}>
-                        <span className="btn-skull">📜</span>
-                        <span className="btn-text">Читать панихиду</span>
-                        <span className="btn-skull">📜</span>
+                    {narrator.available && <NarratorButton narrator={narrator} />}
+                    <button type="button" className="action-btn" onClick={() => setShowScroll(true)}>
+                        <span className="btn-icon" aria-hidden="true">📜</span>
+                        <span className="btn-text">{t('readEulogy')}</span>
                     </button>
-                    <button className="action-btn" onClick={onBuryAnother}>
-                        <span className="btn-skull">⚰️</span>
-                        <span className="btn-text">Похоронить ещё</span>
-                        <span className="btn-skull">⚰️</span>
+                    <button type="button" className="action-btn" onClick={onShare}>
+                        <span className="btn-icon" aria-hidden="true">📤</span>
+                        <span className="btn-text">{t('share')}</span>
+                    </button>
+                    <button type="button" className="action-btn" onClick={onBuryAnother}>
+                        <span className="btn-icon" aria-hidden="true">⚰️</span>
+                        <span className="btn-text">{t('buryAnother')}</span>
                     </button>
                 </motion.div>
+                <NarratorStatus narrator={narrator} />
+                <AnimatePresence>
+                    {toast && (
+                        <motion.div
+                            className="toast"
+                            role="status"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 10 }}
+                        >
+                            {toast}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </motion.div>
         </>
     )
@@ -1025,6 +1315,7 @@ function Gravestone({ data, onBuryAnother }) {
 // ====================================================
 
 function Cemetery({ graves, onSelect, onDelete }) {
+    const { t } = useI18n()
     if (graves.length === 0) return null
 
     return (
@@ -1034,8 +1325,8 @@ function Cemetery({ graves, onSelect, onDelete }) {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
         >
-            <h2 className="cemetery-title">🪦 Моё Кладбище</h2>
-            <p className="cemetery-subtitle">Нажми на могилу, чтобы перечитать панихиду</p>
+            <h2 className="cemetery-title"><span aria-hidden="true">🪦</span> {t('cemeteryTitle')}</h2>
+            <p className="cemetery-subtitle">{t('cemeterySubtitle')}</p>
             <div className="cemetery-grid">
                 {graves.map((grave, i) => (
                     <motion.div
@@ -1043,22 +1334,24 @@ function Cemetery({ graves, onSelect, onDelete }) {
                         className="mini-grave"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.08 }}
+                        transition={{ delay: Math.min(i, 8) * 0.06 }}
                         whileHover={{ scale: 1.04, y: -4 }}
                         layout
                     >
-                        <div className="mini-grave-content" onClick={() => onSelect(grave)}>
-                            <div className="mini-grave-icon">🪦</div>
-                            <div className="mini-grave-name">{grave.mistake}</div>
-                            <div className="mini-grave-date">{grave.died}</div>
-                        </div>
+                        <button type="button" className="mini-grave-content" onClick={() => onSelect(grave)}>
+                            <span className="mini-grave-rip" aria-hidden="true">✝</span>
+                            <span className="mini-grave-name" lang={grave.lang} dir="auto">{grave.mistake}</span>
+                            <span className="mini-grave-date" lang={grave.lang}>{grave.died}</span>
+                        </button>
                         <button
+                            type="button"
                             className="mini-grave-delete"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onDelete(grave.id)
                             }}
-                            title="Удалить могилу навсегда"
+                            title={t('deleteGrave')}
+                            aria-label={t('deleteGrave')}
                         >
                             ✕
                         </button>
@@ -1074,12 +1367,38 @@ function Cemetery({ graves, onSelect, onDelete }) {
 // ====================================================
 
 export default function App() {
+    const [lang, setLangState] = useState(initialLang)
     const [view, setView] = useState('confess') // 'confess' | 'loading' | 'funeral'
     const [currentGrave, setCurrentGrave] = useState(null)
     const [graves, setGraves] = useState([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
-    const [isMuted, setIsMuted] = useState(false)
+    const [isMuted, setIsMuted] = useState(() => {
+        try { return localStorage.getItem('funeral-muted') === '1' } catch { return false }
+    })
+
+    const t = translator(lang)
+    currentLang = lang
+
+    useEffect(() => {
+        const meta = langMeta(lang)
+        document.documentElement.lang = lang
+        document.documentElement.dir = meta.dir
+        document.title = t('title')
+        try { localStorage.setItem('funeral-lang', lang) } catch { /* private mode */ }
+    }, [lang, t])
+
+    const setLang = useCallback((code) => {
+        setLangState(code)
+        setError(null)
+    }, [])
+
+    const toggleMute = () => {
+        setIsMuted((m) => {
+            try { localStorage.setItem('funeral-muted', m ? '0' : '1') } catch { /* private mode */ }
+            return !m
+        })
+    }
 
     const loadGraves = useCallback(async () => {
         try {
@@ -1102,13 +1421,13 @@ export default function App() {
         try {
             const data = await apiFetch('/api/bury', {
                 method: 'POST',
-                body: JSON.stringify({ mistake }),
+                body: JSON.stringify({ mistake, uiLang: lang }),
             })
             setCurrentGrave(data)
             setView('funeral')
             loadGraves()
         } catch (err) {
-            setError(err.message || 'Что-то пошло ужасно не так в склепе.')
+            setError(err.message || t('genericError'))
             setView('confess')
         } finally {
             // Without this the confessional stayed disabled after the first burial.
@@ -1126,50 +1445,54 @@ export default function App() {
     }
 
     return (
-        <div className="app-container">
-            <AmbientHorror isMuted={isMuted} />
-            <ScreenOverlays />
-            <SpiderWebs />
-            <Particles />
+        <I18nContext.Provider value={{ lang, t, setLang }}>
+            <div className="app-container">
+                <AmbientHorror isMuted={isMuted} />
+                <ScreenOverlays />
+                <SpiderWebs />
+                <Particles />
 
-            <main className="main-content">
-                <Header isMuted={isMuted} onToggleMute={() => setIsMuted(!isMuted)} />
+                <main className="main-content">
+                    <TopBar isMuted={isMuted} onToggleMute={toggleMute} />
+                    <Header />
 
-                <AnimatePresence mode="wait">
+                    <AnimatePresence mode="wait">
+                        {view === 'confess' && (
+                            <Confessional key="confess" onSubmit={handleBury} isLoading={loading} />
+                        )}
+                        {view === 'loading' && (
+                            <DiggingScene key="loading" />
+                        )}
+                        {view === 'funeral' && currentGrave && (
+                            <Gravestone
+                                key={`funeral-${currentGrave.id}`}
+                                data={currentGrave}
+                                onBuryAnother={() => setView('confess')}
+                            />
+                        )}
+                    </AnimatePresence>
+
+                    {error && <div className="error-box" role="alert">{error}</div>}
+
                     {view === 'confess' && (
-                        <Confessional key="confess" onSubmit={handleBury} isLoading={loading} />
-                    )}
-                    {view === 'loading' && (
-                        <DiggingScene key="loading" />
-                    )}
-                    {view === 'funeral' && currentGrave && (
-                        <Gravestone
-                            key="funeral"
-                            data={currentGrave}
-                            onBuryAnother={() => setView('confess')}
+                        <Cemetery
+                            graves={graves}
+                            onSelect={(g) => {
+                                setCurrentGrave(g)
+                                setView('funeral')
+                                window.scrollTo({ top: 0, behavior: 'smooth' })
+                            }}
+                            onDelete={handleDelete}
                         />
                     )}
-                </AnimatePresence>
+                </main>
 
-                {error && <div className="error-box">{error}</div>}
-
-                {view === 'confess' && (
-                    <Cemetery
-                        graves={graves}
-                        onSelect={(g) => {
-                            setCurrentGrave(g)
-                            setView('funeral')
-                        }}
-                        onDelete={handleDelete}
-                    />
-                )}
-            </main>
-
-            <footer className="footer">
-                <p>
-                    <span className="footer-skull">💀</span> Funeral for Stupid Decisions &copy; 2026
-                </p>
-            </footer>
-        </div>
+                <footer className="footer">
+                    <p>
+                        <span className="footer-skull" aria-hidden="true">💀</span> {t('title')} &copy; {new Date().getFullYear()}
+                    </p>
+                </footer>
+            </div>
+        </I18nContext.Provider>
     )
 }
